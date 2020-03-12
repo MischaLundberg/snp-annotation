@@ -16,7 +16,6 @@ import dask.dataframe as dd
 import numpy as np
 import subprocess
 from dask.multiprocessing import get
-import pyranges as pr
 
 input_data = ""
 reference_data = ""
