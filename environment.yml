@@ -1,0 +1,10 @@
+name: snpannotation
+channels:
+- bioconda
+dependencies:
+- python=2.7
+- pandas=0.22.0
+- numpy=1.14.3
+- pysam=0.14.1
+- biopython=1.71
+- dask
