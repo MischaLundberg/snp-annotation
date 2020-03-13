@@ -20,15 +20,26 @@ from dask.multiprocessing import get
 input_data = ""
 reference_data = ""
 
-def get_ldsnp_db():
+def get_ldsnp_db(db_type):
 
     directory = os.path.dirname
-    command = "cd "+directory+"/dbsnp ; rm *.*; \
-        wget https://ftp.ncbi.nih.gov/snp/latest_release/VCF/*.25.gz;  zcat *.25.gz | \
-            grep -v \"##\" | cut  -f1-5 | \
-            awk \\'{ if ($1 == \"#CHROM\") print \"CHR\tBP\tRSID\tA1\tA2\"; else print $0}\\' \
-            > dbsnp.tsv; rm *.gz; gzip dbsnp.tsv"
+    print "Downloading and cleaning database"
+    if db_type == "common" :
+        print "Creating database for common variants"
+        command = "cd "+directory+"/dbsnp ; rm *.*; \
+            wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-common_all.vcf.gz;  zcat 00-common_all.vcf.gz | \
+                grep -v \"##\" | cut  -f1-5 | \
+                awk \\'{ if (\$1 == \"#CHROM\") print \"RSID\\tKEY1\\tKEY2\"; else print \$3\"\\t\"\$1\":\"\$2\"_\"\$4\"_\"\$5\"\\t\"\$1\":\"\$2\"_\"\$5\"_\"\$4}\\' \
+                > dbsnp_common.tsv; rm *.gz; gzip dbsnp_common.tsv"
+    if db_type == "all":
+        print "Creating database for common and rare variants"
+        command = "cd "+directory+"/dbsnp ; rm *.*; \
+            wget https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh37p13/VCF/00-All.vcf.gz;  zcat 00-All.vcf.gz | \
+                grep -v \"##\" | cut  -f1-5 | \
+                awk \\'{ if (\$1 == \"#CHROM\") print \"RSID\\tKEY1\\tKEY2\"; else print \$3\"\\t\"\$1\":\"\$2\"_\"\$4\"_\"\$5\"\\t\"\$1\":\"\$2\"_\"\$5\"_\"\$4}\\' \
+                > dbsnp_all.tsv; rm *.gz; gzip dbsnp_all.tsv"
     subprocess.call(command, shell=True)
+    print "database successfully created"
 
 def load_data(r_sep, i_sep, input_file, reference, strandedness, rck, file_type):
 
@@ -66,9 +77,9 @@ def load_data(r_sep, i_sep, input_file, reference, strandedness, rck, file_type)
             if not rck: reference_data.columns = check_and_swap_header(ref_header, "ref")
             check_strandedness(strandedness, reference, file_type, rck)
             #print reference_data.head()
-            if not rck and not strandedness: 
-                reference_data['KEY1'] = reference_data['CHR'].astype(str) + reference_data['BP'].astype(str) + reference_data['A1'].astype(str) + reference_data['A2']
-                reference_data['KEY2'] = reference_data['CHR'].astype(str) + reference_data['BP'].astype(str) + reference_data['A2'].astype(str) + reference_data['A1']
+            if not rck and not strandedness and ( not ('KEY1' in reference_data.columns) and not ('KEY1' in reference_data.columns)): 
+                reference_data['KEY1'] = reference_data['CHR'].astype(str) + ":" + reference_data['BP'].astype(str) + "_" + reference_data['A1'].astype(str) + "_" + reference_data['A2']
+                reference_data['KEY2'] = reference_data['CHR'].astype(str) + ":" + reference_data['BP'].astype(str) + "_" + reference_data['A2'].astype(str) + "_" + reference_data['A1']
             #print reference_data.head()
         except:
             raise Warning("An exception occurred while loading the reference file into memory.") 
@@ -90,8 +101,8 @@ def load_data(r_sep, i_sep, input_file, reference, strandedness, rck, file_type)
             input_data.columns = check_and_swap_header(input_header, "input")
             check_strandedness(strandedness, input_file, file_type, rck)
             #print input_data.head()
-            input_data['KEY2'] = input_data['CHR'].astype(str) + input_data['BP'].astype(str) + input_data['A1'].astype(str) + input_data['A2']
-            input_data['KEY1'] = input_data['CHR'].astype(str) + input_data['BP'].astype(str) + input_data['A2'].astype(str) + input_data['A1']
+            input_data['KEY2'] = input_data['CHR'].astype(str) + ":" + input_data['BP'].astype(str) + "_" + input_data['A1'].astype(str) + "_" + input_data['A2']
+            input_data['KEY1'] = input_data['CHR'].astype(str) + ":" + input_data['BP'].astype(str) + "_" + input_data['A2'].astype(str) + "_" + input_data['A1']
             #print input_data.head()   
         except:
             raise Warning("An exception occurred while loading the input file %s into memory. Please check this input file and rerun it." %input_file ) 
@@ -219,55 +230,62 @@ def save_df(df, output_loc, o_sep):
 def main(args):
 
     if args.sort: raise Warning("Not yet implemented! TODO")
-    load_data(args.r_sep,args.i_sep,args.i,args.r,args.strandedness, args.rck, "reference")
-    if "," in args.i or "files.txt" in args.i or args.m: ## if several input files (sumstats) given.
-        print "in files"
-        if "files.txt" in args.i or args.m:
-            if args.mis == 't':
-                with open(args.i, 'r') as f: input_file_list = f.read().splitlines()
-            else:
-                with open(args.i, 'r') as f: input_file_list = f.readlines()[0].split(args.mis)[:-1]
-            #print "files.txt"
+    if args.i == 'none' or args.create_database:
+        if not args.create_database:
+            raise Exception("No input file has been selected.")
         else:
-            input_file_list = args.i.split(",")
-            #print "list"
-        print input_file_list
-        o_was_none =  False
-        for input_file in input_file_list:
-            print "Running now %s" %input_file
-            load_data(args.r_sep,args.i_sep,input_file,args.r,args.strandedness, args.rck, "input")
+            raise Warning("No input file selected. Updating dbsnp database!")
+            get_ldsnp_db(args.snps)
+    else:
+        load_data(args.r_sep,args.i_sep,args.i,args.r,args.strandedness, args.rck, "reference")
+        if "," in args.i or "files.txt" in args.i or args.m: ## if several input files (sumstats) given.
+            print "in files"
+            if "files.txt" in args.i or args.m:
+                if args.mis == 't':
+                    with open(args.i, 'r') as f: input_file_list = f.read().splitlines()
+                else:
+                    with open(args.i, 'r') as f: input_file_list = f.readlines()[0].split(args.mis)[:-1]
+                #print "files.txt"
+            else:
+                input_file_list = args.i.split(",")
+                #print "list"
+            print input_file_list
+            o_was_none =  False
+            for input_file in input_file_list:
+                print "Running now %s" %input_file
+                load_data(args.r_sep,args.i_sep,input_file,args.r,args.strandedness, args.rck, "input")
+                merged_df = merge_dfs(args.strandedness)
+                print merged_df.head()
+                if args.strandedness:
+                    merged_df = revert_strandedness_translation(merged_df, args.rck)     
+                try:  
+                    if args.o == "none":
+                        args.o = os.path.splitext(input_file)[0]+"_sumstats_rsid.bed"
+                        o_was_none = True
+                    print "output is saved in %s" %args.o
+                except AssertionError as error:
+                    raise Warning("An exception occurred while generating output filename. Error: %s" %error)
+                try:
+                    save_df(merged_df, args.o, args.o_sep)
+                except AssertionError as error:
+                    raise Warning("An exception occurred while saving output dataframe. Error: %s" %error)
+                if o_was_none:
+                    args.o = "none"
+                
+        else: 
+            load_data(args.r_sep,args.i_sep,args.i,args.r,args.strandedness, args.rck, "input")
             merged_df = merge_dfs(args.strandedness)
             print merged_df.head()
             if args.strandedness:
-                merged_df = revert_strandedness_translation(merged_df, args.rck)     
-            try:  
-                if args.o == "none":
-                    args.o = os.path.splitext(input_file)[0]+"_sumstats_rsid.bed"
-                    o_was_none = True
-                print "output is saved in %s" %args.o
-            except AssertionError as error:
-                raise Warning("An exception occurred while generating output filename. Error: %s" %error)
-            try:
-                save_df(merged_df, args.o, args.o_sep)
-            except AssertionError as error:
-                raise Warning("An exception occurred while saving output dataframe. Error: %s" %error)
-            if o_was_none:
-                args.o = "none"
-            
-    else: 
-        load_data(args.r_sep,args.i_sep,args.i,args.r,args.strandedness, args.rck, "input")
-        merged_df = merge_dfs()
-        print merged_df.head()
-        if args.strandedness:
-            merged_df = revert_strandedness_translation(merged_df, args.rck)
-        if args.o == "none":
-            args.o = os.path.splitext(args.i)[0]+"_sumstats_rsid.bed"
-        save_df(merged_df, args.o, args.o_sep)
+                merged_df = revert_strandedness_translation(merged_df, args.rck)
+            if args.o == "none":
+                args.o = os.path.splitext(args.i)[0]+"_sumstats_rsid.bed"
+            save_df(merged_df, args.o, args.o_sep)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Annotates RSID to chromosmal positions.\nPlease remember to check if your reference and input file are both either onebased or zerobased.')
-    parser.add_argument('-i', required=True, help='Target input summary statistics file or list of files separated by \",\" or a file containing all input files separated by \",\" (the file name of this has to be files.txt, e.g. generated by the following command:  ls *.fastGWA.txt.gz | tr \'\n\' \',\' > files.txt); has to contain CHR, BP, A1, A2 (these labels are needed for annotation)')
+    parser.add_argument('-i', default='none', help='Target input summary statistics file or list of files separated by \",\" or a file containing all input files separated by \",\" (the file name of this has to be files.txt, e.g. generated by the following command:  ls *.fastGWA.txt.gz | tr \'\n\' \',\' > files.txt); has to contain CHR, BP, A1, A2 (these labels are needed for annotation)')
     parser.add_argument('-r', default="./dbsnp/dbsnp.tsv.gz", help='Reference file containing RSIDs and chromosomal positions with allele information; has to contain CHR, BP, RSID, A1, A2 (these labels are needed for annotation). Deflaut: \"./dbsnp/dbsnp.tsv.gz\"')
     parser.add_argument('-o', default='none', help='Target output File, for name of the file in argument i leave blank (will be extended by \"sumstats_rsid.bed\"')
     parser.add_argument('--nochr', default=False, action='store_true', help='Make both input files nochr (no \"chr\" prefix to the chromosomal location)')
@@ -279,6 +297,8 @@ if __name__ == '__main__':
     parser.add_argument('-rck', default=False, action='store_true', help='(reference contains key) - If reference file contains a column \"KEY\" which harbors (), then set this key. In this case, the needed KEY is not generated, but used from your input. This will speed-up the whole process by far (depending on the size of your reference file). Setting this key, activates the strandedness option!')
     parser.add_argument('-mis', default=',', help='mass input separator; separator of the files to use if using files.txt as input argument for -i option. Default is \',\'')
     parser.add_argument('-m', default=False, action='store_true', help='Set this key, if autodetection of a file containing filenames to run as input doesnt work.')
+    parser.add_argument('--create_database', default=False, action='store_true', help='downloads and prepares the snpdb database that is used for annotating SNPs without rsid. Needs to be ran as first initialization step')
+    parser.add_argument('--snps', default="common", help='select which database you want to use/align for; options: \"common\" (only common SNPs) \"all\" (common and rare SNPs);deflaut \"common\"')
     args = parser.parse_args()
     main(args)
 #import os,sys
